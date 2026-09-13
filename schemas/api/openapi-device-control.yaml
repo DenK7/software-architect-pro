@@ -10,6 +10,8 @@ info:
 servers:
   - url: https://api.smarthome.example/api/v1
     description: пользовательский контур, через API Gateway
+  - url: http://device-control:8080/api/v1
+    description: внутренний контур, команды от Automation Service
   - url: https://hub.smarthome.example/api/v1
     description: контур хаба, аутентификация по ключу устройства
 
@@ -116,12 +118,12 @@ paths:
           schema: { type: integer, minimum: 0, maximum: 60, default: 30 }
       responses:
         '200':
-          description: Команды для устройств этого дома
+          description: Команды для устройств этого дома, в виде для хаба
           content:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/Command' }
+                items: { $ref: '#/components/schemas/CommandOutbound' }
         '204': { description: За время ожидания команд не появилось }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
@@ -222,6 +224,22 @@ components:
         sentAt: { type: string, format: date-time, nullable: true }
         completedAt: { type: string, format: date-time, nullable: true }
         failureReason: { type: string, nullable: true }
+
+    CommandOutbound:
+      type: object
+      description: |
+        Команда в том виде, в каком она уходит в дом. Полей истории здесь нет:
+        у контура хаба нет ни пользователя, отдавшего команду, ни счётчика попыток.
+        Схема совпадает с CommandDispatched в AsyncAPI — одна и та же команда
+        уходит хабу и длинным опросом, и по WebSocket.
+      required: [commandId, deviceId, capability, action, expiresAt]
+      properties:
+        commandId: { type: string, format: uuid }
+        deviceId: { type: string, format: uuid }
+        capability: { $ref: '#/components/schemas/CapabilityKind' }
+        action: { type: string, example: setLevel }
+        params: { $ref: '#/components/schemas/CommandParams' }
+        expiresAt: { type: string, format: date-time, description: После этого момента команду выполнять нельзя }
 
     CommandStatus:
       type: string

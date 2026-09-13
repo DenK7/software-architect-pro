@@ -11,7 +11,7 @@ flowchart TB
     subgraph dc["Device Control [Container: Java / Spring Boot]"]
         cmdapi["Command API<br/>[Component: REST Controller]<br/>Приём команд, статус выполнения"]
         hubep["Hub Channel Endpoint<br/>[Component: WebSocket + long polling]<br/>Канал до хаба: выдача команд,<br/>приём измерений и состояний"]
-        devauth["Device Authenticator<br/>[Component]<br/>Проверка ключа устройства"]
+        devauth["Device Authenticator<br/>[Component]<br/>Проверка ключа хаба по его хешу"]
         cmdval["Command Validator<br/>[Component]<br/>Сверка команды с возможностями устройства"]
         cmddisp["Command Dispatcher<br/>[Component]<br/>Выбор доставки: живое соединение или очередь"]
         shadow["Device Shadow Manager<br/>[Component]<br/>Желаемое и сообщённое состояние"]
@@ -45,6 +45,7 @@ flowchart TB
     cmdapi --> cmdrepo
 
     hubep --> devauth
+    devauth -.-> pg
     hubep --> cmdqueue
     hubep --> telefwd
     hubep --> connreg
@@ -86,7 +87,7 @@ flowchart TB
 | Command Queue Manager | Очереди команд по устройствам, чтобы приём команды не зависел от наличия соединения. Здесь же срок годности: просроченная команда до дома не доезжает |
 | Command Repository | История команд и их статусов |
 | Registry Client | Обращение к реестру за паспортом и возможностями устройства |
-| Event Publisher | Публикация событий устройств через outbox: регистрация, смена состояния, результат команды |
+| Event Publisher | Публикация событий устройств через outbox: смена состояния и результат команды. Регистрацию устройств публикует реестр, не этот сервис |
 
 Два входа разведены сознательно: у пользовательского REST и у канала до хаба разная аутентификация, разная частота обращений и разный жизненный цикл соединения.
 

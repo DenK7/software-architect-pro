@@ -115,6 +115,8 @@ paths:
       tags: [dictionaries]
       summary: Справочник метрик
       operationId: listMetrics
+      parameters:
+        - { $ref: '#/components/parameters/IncludeDeleted' }
       responses:
         '200':
           description: Метрики
@@ -123,6 +125,36 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Metric' }
+    post:
+      tags: [dictionaries]
+      summary: Добавить метрику
+      description: Операция администратора, публикует ReferenceChanged.
+      operationId: createMetric
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Metric' }
+      responses:
+        '201':
+          description: Метрика добавлена
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Metric' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /metrics/{code}:
+    parameters:
+      - { $ref: '#/components/parameters/Code' }
+    delete:
+      tags: [dictionaries]
+      summary: Вывести метрику из справочника
+      description: Логическое удаление. Уже собранные измерения по ней сохраняются.
+      operationId: deleteMetric
+      responses:
+        '204': { description: Метрика помечена удалённой }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /units:
     get:
@@ -130,6 +162,8 @@ paths:
       summary: Единицы измерения
       description: Приводятся к базовой через baseUnitCode и factor.
       operationId: listUnits
+      parameters:
+        - { $ref: '#/components/parameters/IncludeDeleted' }
       responses:
         '200':
           description: Единицы измерения
@@ -138,12 +172,43 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Unit' }
+    post:
+      tags: [dictionaries]
+      summary: Добавить единицу измерения
+      description: Операция администратора, публикует ReferenceChanged.
+      operationId: createUnit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Unit' }
+      responses:
+        '201':
+          description: Единица добавлена
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Unit' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /units/{code}:
+    parameters:
+      - { $ref: '#/components/parameters/Code' }
+    delete:
+      tags: [dictionaries]
+      summary: Вывести единицу из справочника
+      operationId: deleteUnit
+      responses:
+        '204': { description: Единица помечена удалённой }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /protocols:
     get:
       tags: [dictionaries]
       summary: Поддерживаемые протоколы подключения
       operationId: listProtocols
+      parameters:
+        - { $ref: '#/components/parameters/IncludeDeleted' }
       responses:
         '200':
           description: Протоколы
@@ -152,6 +217,48 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Protocol' }
+    post:
+      tags: [dictionaries]
+      summary: Добавить протокол
+      description: Операция администратора, публикует ReferenceChanged.
+      operationId: createProtocol
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Protocol' }
+      responses:
+        '201':
+          description: Протокол добавлен
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Protocol' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /protocols/{code}:
+    parameters:
+      - { $ref: '#/components/parameters/Code' }
+    patch:
+      tags: [dictionaries]
+      summary: Включить или отключить поддержку протокола
+      operationId: updateProtocol
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                active: { type: boolean }
+                title: { type: string }
+      responses:
+        '200':
+          description: Изменённый протокол
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Protocol' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /classifiers:
     get:
@@ -159,11 +266,8 @@ paths:
       summary: Значения классификатора
       operationId: listClassifiers
       parameters:
-        - name: kind
-          in: query
-          required: true
-          schema: { type: string }
-          description: Какой классификатор запрашивается
+        - { $ref: '#/components/parameters/Kind' }
+        - { $ref: '#/components/parameters/IncludeDeleted' }
       responses:
         '200':
           description: Значения классификатора
@@ -172,6 +276,37 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Classifier' }
+    post:
+      tags: [dictionaries]
+      summary: Добавить значение классификатора
+      description: Операция администратора, публикует ReferenceChanged.
+      operationId: createClassifier
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Classifier' }
+      responses:
+        '201':
+          description: Значение добавлено
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Classifier' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /classifiers/{kind}/{code}:
+    parameters:
+      - { $ref: '#/components/parameters/KindPath' }
+      - { $ref: '#/components/parameters/Code' }
+    delete:
+      tags: [dictionaries]
+      summary: Вывести значение из классификатора
+      description: Логическое удаление, уже проставленные ссылки на значение сохраняются.
+      operationId: deleteClassifier
+      responses:
+        '204': { description: Значение помечено удалённым }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /version:
     get:
@@ -187,9 +322,39 @@ paths:
               schema: { $ref: '#/components/schemas/ReferenceVersion' }
 
 components:
+  parameters:
+    Kind:
+      name: kind
+      in: query
+      required: true
+      schema: { type: string }
+      description: Какой классификатор запрашивается
+    KindPath:
+      name: kind
+      in: path
+      required: true
+      schema: { type: string }
+      description: Классификатор, которому принадлежит значение
+    Code:
+      name: code
+      in: path
+      required: true
+      schema: { type: string }
+      description: Код записи справочника, он же её адрес
+    IncludeDeleted:
+      name: includeDeleted
+      in: query
+      schema: { type: boolean, default: false }
+      description: Вернуть в том числе логически удалённые записи
+
   responses:
     Forbidden:
       description: Операция доступна только администратору
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Запись с таким кодом уже существует
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -214,6 +379,8 @@ components:
         capabilities:
           type: array
           items: { $ref: '#/components/schemas/CapabilitySpec' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
         deletedAt: { type: string, format: date-time, nullable: true }
         deletedBy: { type: string, format: uuid, nullable: true }
 
@@ -265,6 +432,8 @@ components:
           type: string
           enum: [numeric, boolean, text]
           description: В какую колонку измерения ляжет значение
+        deletedAt: { type: string, format: date-time, nullable: true }
+        deletedBy: { type: string, format: uuid, nullable: true }
 
     Unit:
       type: object
@@ -274,6 +443,8 @@ components:
         symbol: { type: string, example: "°C" }
         baseUnitCode: { type: string, nullable: true }
         factor: { type: number, nullable: true, description: Множитель приведения к базовой }
+        deletedAt: { type: string, format: date-time, nullable: true }
+        deletedBy: { type: string, format: uuid, nullable: true }
 
     Protocol:
       type: object
@@ -282,6 +453,8 @@ components:
         code: { type: string, example: zigbee }
         title: { type: string }
         active: { type: boolean }
+        deletedAt: { type: string, format: date-time, nullable: true }
+        deletedBy: { type: string, format: uuid, nullable: true }
 
     Classifier:
       type: object
@@ -290,6 +463,8 @@ components:
         kind: { type: string }
         code: { type: string }
         title: { type: string }
+        deletedAt: { type: string, format: date-time, nullable: true }
+        deletedBy: { type: string, format: uuid, nullable: true }
 
     ReferenceVersion:
       type: object
