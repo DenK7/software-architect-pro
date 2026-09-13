@@ -37,7 +37,7 @@
     - Выдача показаний — передача текущего значения пользователю
 - Ограниченный контекст: телеметрия
 
-Не хватает доменов управления домами и пользователями.
+Не хватает доменов управления отоплением, домами и пользователями.
 
 ### **4. Проблемы монолитного решения**
 
@@ -61,35 +61,45 @@
 
 ### 5. Визуализация контекста системы — диаграмма С4
 
-```markdown
-[Диаграмма контекста системы умного дома (C4)](schemas/monolith-schema.md)
-```
+[Диаграмма контекста системы умного дома](schemas/monolith-schema.md)
 
 # Задание 2. Проектирование микросервисной архитектуры
 
-В этом задании вам нужно предоставить только диаграммы в модели C4. Мы не просим вас отдельно описывать получившиеся микросервисы и то, как вы определили взаимодействия между компонентами To-Be системы. Если вы правильно подготовите диаграммы C4, они и так это покажут.
-
 **Диаграмма контейнеров (Containers)**
 
-Добавьте диаграмму.
+[Диаграмма контейнеров](schemas/containers-schema.md)
 
 **Диаграмма компонентов (Components)**
 
-Добавьте диаграмму для каждого из выделенных микросервисов.
+- [API Gateway](schemas/components-01-api-gateway.md)
+- [User Service](schemas/components-02-user-service.md)
+- [Home Service](schemas/components-03-home-service.md)
+- [Device Registry](schemas/components-04-device-registry.md)
+- [Device Control](schemas/components-05-device-control.md)
+- [Telemetry Service](schemas/components-06-telemetry-service.md)
+- [Video Service](schemas/components-07-video-service.md)
+- [Automation Service](schemas/components-08-automation-service.md)
+- [Catalog Service](schemas/components-09-catalog-service.md)
+- [Reference Data](schemas/components-10-reference-data.md)
+- [Notification Service](schemas/components-11-notification-service.md)
 
 **Диаграмма кода (Code)**
 
-Добавьте одну диаграмму или несколько.
+- [Доставка команды до устройства — диаграмма последовательности](schemas/code-01-command-delivery.md)
+- [Модель возможностей устройств — диаграмма классов](schemas/code-02-capability-model.md)
+- [Жизненный цикл команды — диаграмма состояний](schemas/code-03-command-lifecycle.md)
 
 # Задание 3. Разработка ER-диаграммы
 
-Добавьте сюда ER-диаграмму. Она должна отражать ключевые сущности системы, их атрибуты и тип связей между ними.
+[ER-диаграмма по сервисам](schemas/er-schema.md)
 
 # Задание 4. Создание и документирование API
 
 ### 1. Тип API
 
-Укажите, какой тип API вы будете использовать для взаимодействия микросервисов. Объясните своё решение.
+Swagger/OpenAPI
+Все методы - синхронные Rest. Swagger является стандартом для документирования API в Java rest на текущий момент.
+Позволяет идти и от описания контрактов к реализации и в обратную сторону, что удобно в большой команде и при постоянных правках. 
 
 ### 2. Документация API
 
