@@ -158,7 +158,7 @@ erDiagram
         timestamptz sent_at "когда выдана хабу"
         timestamptz completed_at "когда подтверждена или отбракована"
         smallint attempts "число попыток доставки, ограничивает повторы"
-        command_status status "проверка, в очереди, отправлена, выполнена, ошибка, просрочена"
+        command_status status "проверка, отклонена, в очереди, отправлена, выполнена, ошибка, просрочена"
         capability_kind capability "над какой возможностью устройства"
         varchar action "действие внутри возможности"
         varchar failure_reason "причина отказа устройства"

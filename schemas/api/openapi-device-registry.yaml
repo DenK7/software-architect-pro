@@ -1,0 +1,260 @@
+openapi: 3.0.3
+info:
+  title: Device Registry API
+  description: |
+    Реестр устройств: паспорт, возможности, регистрация и вывод из эксплуатации.
+    Удаление логическое, удалённые записи возвращает параметр includeDeleted.
+  version: 1.0.0
+
+servers:
+  - url: https://api.smarthome.example/api/v1
+    description: через API Gateway, внешний контур
+  - url: http://device-registry:8080/api/v1
+    description: внутренний контур, вызовы соседних сервисов
+
+tags:
+  - name: devices
+    description: Устройства пользователя
+  - name: device-types
+    description: Доступные типы устройств и их возможности
+
+paths:
+  /devices:
+    get:
+      tags: [devices]
+      summary: Список устройств
+      operationId: listDevices
+      parameters:
+        - name: homeId
+          in: query
+          schema: { type: string, format: uuid }
+          description: Фильтр по дому
+        - name: typeId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/DeviceStatus' }
+        - name: includeDeleted
+          in: query
+          schema: { type: boolean, default: false }
+          description: Вернуть в том числе логически удалённые устройства
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: Страница устройств
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DevicePage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [devices]
+      summary: Зарегистрировать устройство
+      description: Дом подтверждается через Home Lookup API, возможности выводятся из типа.
+      operationId: registerDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeviceCreate' }
+      responses:
+        '201':
+          description: Устройство зарегистрировано
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Device' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: Серийный номер уже зарегистрирован
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /devices/{deviceId}:
+    parameters:
+      - { $ref: '#/components/parameters/DeviceId' }
+    get:
+      tags: [devices]
+      summary: Карточка устройства
+      operationId: getDevice
+      responses:
+        '200':
+          description: Устройство
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Device' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [devices]
+      summary: Изменить метаданные устройства
+      operationId: updateDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeviceUpdate' }
+      responses:
+        '200':
+          description: Изменённое устройство
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Device' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [devices]
+      summary: Вывести устройство из эксплуатации
+      description: Логическое удаление — проставляются deletedAt и deletedBy, история сохраняется.
+      operationId: deleteDevice
+      responses:
+        '204': { description: Устройство помечено удалённым }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /device-types:
+    get:
+      tags: [device-types]
+      summary: Доступные типы устройств
+      description: Из локальной проекции справочника.
+      operationId: listDeviceTypes
+      parameters:
+        - name: protocolCode
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Типы устройств с их возможностями
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DeviceType' }
+
+components:
+  parameters:
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+      description: Курсор следующей страницы из предыдущего ответа
+
+  responses:
+    BadRequest:
+      description: Некорректный запрос
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Токен отсутствует или недействителен
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Устройство не найдено или логически удалено
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Device:
+      type: object
+      required: [id, typeId, homeId, serialNumber, name, status, registeredAt]
+      properties:
+        id: { type: string, format: uuid }
+        typeId: { type: string, format: uuid, description: Тип из справочника }
+        homeId: { type: string, format: uuid, description: Дом, ссылка в Home Service }
+        ownerUserId: { type: string, format: uuid }
+        serialNumber: { type: string, example: AQ-T1-0042-7731, description: Серийный номер с коробки }
+        name: { type: string, example: Термостат в гостиной, description: Имя, заданное пользователем }
+        status: { $ref: '#/components/schemas/DeviceStatus' }
+        registeredAt: { type: string, format: date-time }
+        lastSeenAt: { type: string, format: date-time, nullable: true }
+        deletedAt: { type: string, format: date-time, nullable: true }
+        deletedBy: { type: string, format: uuid, nullable: true }
+        capabilities:
+          type: array
+          items: { $ref: '#/components/schemas/Capability' }
+
+    DeviceCreate:
+      type: object
+      required: [typeId, homeId, serialNumber, name]
+      properties:
+        typeId: { type: string, format: uuid }
+        homeId: { type: string, format: uuid }
+        serialNumber: { type: string }
+        name: { type: string }
+
+    DeviceUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        homeId: { type: string, format: uuid, description: Перенос устройства в другой дом }
+
+    DeviceStatus:
+      type: string
+      enum: [registered, active, offline, decommissioned]
+      description: registered — не выходило на связь, active — на связи, offline — молчит, decommissioned — выведено.
+
+    DeviceType:
+      type: object
+      required: [id, code, manufacturer, model]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string, example: aqara-t1-thermostat }
+        manufacturer: { type: string, example: Aqara }
+        model: { type: string, example: SRTS-A01 }
+        active: { type: boolean, description: Доступен ли тип к подключению }
+        capabilities:
+          type: array
+          items: { $ref: '#/components/schemas/Capability' }
+
+    Capability:
+      type: object
+      required: [kind]
+      properties:
+        kind: { $ref: '#/components/schemas/CapabilityKind' }
+        metricCode: { type: string, nullable: true, example: temperature, description: Метрика, для возможностей вида sensor }
+        unitCode: { type: string, nullable: true, example: celsius }
+        minValue: { type: number, nullable: true }
+        maxValue: { type: number, nullable: true }
+        readOnly: { type: boolean, default: false }
+
+    CapabilityKind:
+      type: string
+      enum: [onOff, level, setpoint, lock, sensor, stream]
+      description: Устройство описывается набором возможностей, а не типом.
+
+    DevicePage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Device' }
+        nextCursor: { type: string, nullable: true }
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string, example: DEVICE_NOT_FOUND }
+        message: { type: string }
+        traceId: { type: string, description: Идентификатор запроса для разбора в логах }
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Токен с асимметричной подписью, выпускает User Service, проверяет шлюз
+
+security:
+  - bearerAuth: []

@@ -61,49 +61,83 @@
 
 ### 5. Визуализация контекста системы — диаграмма С4
 
-[Диаграмма контекста системы умного дома](schemas/monolith-schema.md)
+[Диаграмма контекста системы умного дома](schemas/context/monolith-schema.md)
 
 # Задание 2. Проектирование микросервисной архитектуры
 
 **Диаграмма контейнеров (Containers)**
 
-[Диаграмма контейнеров](schemas/containers-schema.md)
+[Диаграмма контейнеров](schemas/containers/containers-schema.md)
 
 **Диаграмма компонентов (Components)**
 
-- [API Gateway](schemas/components-01-api-gateway.md)
-- [User Service](schemas/components-02-user-service.md)
-- [Home Service](schemas/components-03-home-service.md)
-- [Device Registry](schemas/components-04-device-registry.md)
-- [Device Control](schemas/components-05-device-control.md)
-- [Telemetry Service](schemas/components-06-telemetry-service.md)
-- [Video Service](schemas/components-07-video-service.md)
-- [Automation Service](schemas/components-08-automation-service.md)
-- [Catalog Service](schemas/components-09-catalog-service.md)
-- [Reference Data](schemas/components-10-reference-data.md)
-- [Notification Service](schemas/components-11-notification-service.md)
+- [API Gateway](schemas/components/01-api-gateway.md)
+- [User Service](schemas/components/02-user-service.md)
+- [Home Service](schemas/components/03-home-service.md)
+- [Device Registry](schemas/components/04-device-registry.md)
+- [Device Control](schemas/components/05-device-control.md)
+- [Telemetry Service](schemas/components/06-telemetry-service.md)
+- [Video Service](schemas/components/07-video-service.md)
+- [Automation Service](schemas/components/08-automation-service.md)
+- [Catalog Service](schemas/components/09-catalog-service.md)
+- [Reference Data](schemas/components/10-reference-data.md)
+- [Notification Service](schemas/components/11-notification-service.md)
 
 **Диаграмма кода (Code)**
 
-- [Доставка команды до устройства — диаграмма последовательности](schemas/code-01-command-delivery.md)
-- [Модель возможностей устройств — диаграмма классов](schemas/code-02-capability-model.md)
-- [Жизненный цикл команды — диаграмма состояний](schemas/code-03-command-lifecycle.md)
+- [Доставка команды до устройства — диаграмма последовательности](schemas/code/01-command-delivery.md)
+- [Модель возможностей устройств — диаграмма классов](schemas/code/02-capability-model.md)
+- [Жизненный цикл команды — диаграмма состояний](schemas/code/03-command-lifecycle.md)
 
 # Задание 3. Разработка ER-диаграммы
 
-[ER-диаграмма по сервисам](schemas/er-schema.md)
+[ER-диаграмма по сервисам](schemas/er/er-schema.md)
 
 # Задание 4. Создание и документирование API
 
 ### 1. Тип API
 
-Swagger/OpenAPI
-Все методы - синхронные Rest. Swagger является стандартом для документирования API в Java rest на текущий момент.
-Позволяет идти и от описания контрактов к реализации и в обратную сторону, что удобно в большой команде и при постоянных правках. 
+В системе три контура взаимодействия, и у каждого свой тип описания.
+
+**Внешний контур — REST/JSON поверх HTTPS, документируется OpenAPI.** Мобильное приложение и админка обращаются к платформе только через API Gateway. REST выбран как зрелый стандарт с полной поддержкой в Java: Swagger позволяет идти и от контракта к реализации, и в обратную сторону, что удобно в большой команде и при постоянных правках.
+
+**Внутренний контур между микросервисами — тоже REST, документируется OpenAPI.** Рассматривали gRPC и отклонили по двум причинам. Первая: шлюз при gRPC внутри вынужден разбирать тело запроса и знать контракт каждого сервиса, то есть превращается в точку связности со всеми одиннадцатью; при REST он пробрасывает запрос, не заглядывая внутрь. Вторая: синхронных вызовов между сервисами у нас мало — почти всё общение идёт событиями, — поэтому выигрыш gRPC в скорости не окупает поддержку второго контракта на каждый сервис.
+
+**Асинхронный контур — RabbitMQ и канал до домашнего хаба, документируется AsyncAPI.**
+
+Критерий разделения простой: **синхронно то, где нужен ответ, асинхронно то, что является свершившимся фактом.** Команда устройству требует ответа — выполнилась или нет, поэтому это синхронный REST. Измерение или смена состояния ответа не требуют: это сообщение о том, что уже произошло.
+
+Через AsyncAPI описываются:
+
+| Сообщение | Кто публикует → кто потребляет | Почему асинхронно |
+|---|---|---|
+| `MeasurementReceived` | Device Control → Telemetry, Automation | наибольший поток в системе, потребителей несколько, потеря единичного значения терпима; приём данных от домов не должен останавливаться из-за недоступности потребителя |
+| `DeviceRegistered`, `DeviceUpdated`, `DeviceDecommissioned` | Device Registry → Telemetry, Automation | на них строятся локальные проекции; синхронный вызов реестра на пути приёма измерений дал бы N+1 и связал доступность сервисов |
+| `ReferenceChanged` | Reference Data → Device Registry | справочник читают все; синхронное обращение к нему на каждый запрос превратило бы его в общую базу для всей системы, то есть в распределённый монолит |
+| `CommandCompleted`, `DeviceStateChanged` | Device Control → Notification | результат команды — факт, ответ на него не нужен |
+| `ScenarioTriggered` | Automation → Notification | сценарий не должен ждать, пока доставится push |
+| `RecordingStored` | Video → Notification | факт появления записи в архиве |
+
+Отдельно AsyncAPI описывает **канал до домашнего хаба**: при активной сессии приложения он поднимается в WebSocket и становится двунаправленным. OpenAPI такой обмен описать не может в принципе — он рассчитан на модель «запрос и ответ». Длинный опрос за командами при этом остаётся обычным HTTP и описан в OpenAPI Device Control.
+
+Надёжность публикации обеспечивается паттерном Outbox: событие пишется в базу одной транзакцией с изменением данных и отправляется отдельным процессом. Исключение — поток измерений: он публикуется напрямую, потому что объём наибольший, а потеря единичного значения допустима.
 
 ### 2. Документация API
 
-Здесь приложите ссылки на документацию API для микросервисов, которые вы спроектировали в первой части проектной работы. Для документирования используйте Swagger/OpenAPI или AsyncAPI.
+Спецификации собраны для трёх микросервисов, для которых сделаны диаграммы уровня кода.
+
+**Синхронный контур — OpenAPI 3.0:**
+
+- [Device Registry](schemas/api/openapi-device-registry.yaml) — реестр устройств, их паспорта и возможности
+- [Device Control](schemas/api/openapi-device-control.yaml) — команды устройствам и канал домашнего хаба
+- [Reference Data](schemas/api/openapi-reference-data.yaml) — справочники типов, метрик, единиц и протоколов
+
+**Асинхронный контур — AsyncAPI 2.6:**
+
+- [События платформы](schemas/api/asyncapi-events.yaml) — обмен через RabbitMQ и двунаправленный канал до хаба
+
+Спецификации можно открыть в редакторе [Swagger Editor](https://editor.swagger.io/) и [AsyncAPI Studio](https://studio.asyncapi.com/), вставив содержимое файла.
+
 
 # Задание 5. Работа с docker и docker-compose
 

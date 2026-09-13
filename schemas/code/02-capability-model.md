@@ -60,6 +60,8 @@ classDiagram
         +String name
         +DeviceStatus status
         +Instant lastSeenAt
+        +Instant deletedAt
+        +UUID deletedBy
     }
     class DeviceStatus {
         <<enumeration>>
@@ -84,6 +86,16 @@ classDiagram
         +Duration timeToLive
         +CommandStatus status
     }
+    class CommandStatus {
+        <<enumeration>>
+        Checking
+        Rejected
+        Queued
+        Sent
+        Completed
+        Failed
+        Expired
+    }
     class CommandValidator {
         <<Device Control>>
         +validate(Command, Set~CapabilitySpec~) Result
@@ -102,6 +114,7 @@ classDiagram
     CommandValidator ..> CapabilityResolver : запрашивает возможности
     CommandValidator ..> Command : проверяет
     Command --> CapabilityKind : над какой возможностью
+    Command --> CommandStatus : состояние
 ```
 
 ## Как это работает
@@ -113,5 +126,7 @@ classDiagram
 **Почему возможности лежат в справочнике, а не в коде.** Добавление нового типа устройства — это строка в `DeviceType` и несколько строк в `CapabilitySpec`. Ни реестр, ни Device Control при этом не меняются и не пересобираются. Именно так закрывается требование ТЗ про «будущее неуточнённое поведение» и подключение партнёрских устройств.
 
 **Почему `Unit` ссылается сам на себя.** Единицы приводятся к базовой через множитель: чтобы агрегаты по температуре считались корректно, показания в разных шкалах надо привести к одной. Этим занимается Unit Normalizer в телеметрии.
+
+**Почему у `Device` есть `deletedAt`, а у `Command` нет.** Устройство пользователь удаляет, и удаление логическое: пометка датой, данные остаются, история измерений и команд не теряет смысла. Команда же не удаляется никогда — она часть истории и живёт до срока хранения. `CommandStatus` при этом полностью совпадает с состояниями из диаграммы жизненного цикла команды, включая `Rejected`: отклонённая команда тоже записывается, иначе не ответить на вопрос, почему действие не выполнилось.
 
 **Почему у метрики есть `ValueKind`.** Не всякое измерение — число: датчик движения отдаёт булево значение, геркон — состояние «открыто или закрыто». Значения хранятся отдельными колонками по типу, без универсального JSON-поля, чтобы по числовым рядам можно было дёшево считать агрегаты.

@@ -1,0 +1,316 @@
+openapi: 3.0.3
+info:
+  title: Reference Data API
+  description: |
+    Справочники платформы — типы устройств и их возможности, метрики,
+    единицы измерения, протоколы, классификаторы.
+    Чтение доступно приложениям, изменение — только администратору.
+    Соседние сервисы синхронно сюда не ходят, они держат локальные проекции.
+    Удаление логическое.
+  version: 1.0.0
+
+servers:
+  - url: https://api.smarthome.example/api/v1/reference
+    description: через API Gateway
+
+tags:
+  - name: device-types
+    description: Типы устройств и их возможности
+  - name: dictionaries
+    description: Метрики, единицы, протоколы, классификаторы
+  - name: version
+    description: Версия справочника для потребителей
+
+paths:
+  /device-types:
+    get:
+      tags: [device-types]
+      summary: Список типов устройств
+      operationId: listDeviceTypes
+      parameters:
+        - name: protocolCode
+          in: query
+          schema: { type: string }
+        - name: activeOnly
+          in: query
+          schema: { type: boolean, default: true }
+        - name: includeDeleted
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Типы устройств
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DeviceType' }
+    post:
+      tags: [device-types]
+      summary: Добавить тип устройства
+      description: Операция администратора, публикует ReferenceChanged.
+      operationId: createDeviceType
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeviceTypeCreate' }
+      responses:
+        '201':
+          description: Тип добавлен
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeviceType' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: Тип с таким кодом уже существует
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /device-types/{typeId}:
+    parameters:
+      - name: typeId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [device-types]
+      summary: Тип устройства с возможностями
+      operationId: getDeviceType
+      responses:
+        '200':
+          description: Тип устройства
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeviceType' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [device-types]
+      summary: Изменить тип устройства
+      operationId: updateDeviceType
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeviceTypeUpdate' }
+      responses:
+        '200':
+          description: Изменённый тип
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeviceType' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [device-types]
+      summary: Вывести тип из справочника
+      description: Логическое удаление. Зарегистрированные устройства работают, новые подключить нельзя.
+      operationId: deleteDeviceType
+      responses:
+        '204': { description: Тип помечен удалённым, событие опубликовано }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /metrics:
+    get:
+      tags: [dictionaries]
+      summary: Справочник метрик
+      operationId: listMetrics
+      responses:
+        '200':
+          description: Метрики
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Metric' }
+
+  /units:
+    get:
+      tags: [dictionaries]
+      summary: Единицы измерения
+      description: Приводятся к базовой через baseUnitCode и factor.
+      operationId: listUnits
+      responses:
+        '200':
+          description: Единицы измерения
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Unit' }
+
+  /protocols:
+    get:
+      tags: [dictionaries]
+      summary: Поддерживаемые протоколы подключения
+      operationId: listProtocols
+      responses:
+        '200':
+          description: Протоколы
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Protocol' }
+
+  /classifiers:
+    get:
+      tags: [dictionaries]
+      summary: Значения классификатора
+      operationId: listClassifiers
+      parameters:
+        - name: kind
+          in: query
+          required: true
+          schema: { type: string }
+          description: Какой классификатор запрашивается
+      responses:
+        '200':
+          description: Значения классификатора
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Classifier' }
+
+  /version:
+    get:
+      tags: [version]
+      summary: Текущая версия справочника
+      description: По ней потребитель понимает, не отстала ли локальная проекция.
+      operationId: getReferenceVersion
+      responses:
+        '200':
+          description: Версия справочника
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReferenceVersion' }
+
+components:
+  responses:
+    Forbidden:
+      description: Операция доступна только администратору
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Не найдено или логически удалено
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    DeviceType:
+      type: object
+      required: [id, code, manufacturer, model, title]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        manufacturer: { type: string, example: Aqara }
+        model: { type: string, example: SRTS-A01 }
+        title: { type: string }
+        protocolCode: { type: string }
+        active: { type: boolean, description: Доступен ли к подключению сейчас }
+        capabilities:
+          type: array
+          items: { $ref: '#/components/schemas/CapabilitySpec' }
+        deletedAt: { type: string, format: date-time, nullable: true }
+        deletedBy: { type: string, format: uuid, nullable: true }
+
+    DeviceTypeCreate:
+      type: object
+      required: [code, manufacturer, model, title, protocolCode, capabilities]
+      properties:
+        code: { type: string }
+        manufacturer: { type: string, example: Aqara }
+        model: { type: string, example: SRTS-A01 }
+        title: { type: string }
+        protocolCode: { type: string }
+        capabilities:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/CapabilitySpec' }
+
+    DeviceTypeUpdate:
+      type: object
+      properties:
+        title: { type: string }
+        active: { type: boolean }
+        capabilities:
+          type: array
+          items: { $ref: '#/components/schemas/CapabilitySpec' }
+
+    CapabilitySpec:
+      type: object
+      required: [kind]
+      properties:
+        kind: { $ref: '#/components/schemas/CapabilityKind' }
+        metricCode: { type: string, nullable: true }
+        unitCode: { type: string, nullable: true, example: celsius }
+        minValue: { type: number, nullable: true }
+        maxValue: { type: number, nullable: true }
+        readOnly: { type: boolean, default: false }
+
+    CapabilityKind:
+      type: string
+      enum: [onOff, level, setpoint, lock, sensor, stream]
+
+    Metric:
+      type: object
+      required: [code, title, valueKind]
+      properties:
+        code: { type: string, example: temperature }
+        title: { type: string }
+        valueKind:
+          type: string
+          enum: [numeric, boolean, text]
+          description: В какую колонку измерения ляжет значение
+
+    Unit:
+      type: object
+      required: [code, symbol]
+      properties:
+        code: { type: string, example: celsius }
+        symbol: { type: string, example: "°C" }
+        baseUnitCode: { type: string, nullable: true }
+        factor: { type: number, nullable: true, description: Множитель приведения к базовой }
+
+    Protocol:
+      type: object
+      required: [code, title]
+      properties:
+        code: { type: string, example: zigbee }
+        title: { type: string }
+        active: { type: boolean }
+
+    Classifier:
+      type: object
+      required: [kind, code, title]
+      properties:
+        kind: { type: string }
+        code: { type: string }
+        title: { type: string }
+
+    ReferenceVersion:
+      type: object
+      required: [version, changedAt]
+      properties:
+        version: { type: integer }
+        changedAt: { type: string, format: date-time }
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string, example: DEVICE_TYPE_NOT_FOUND }
+        message: { type: string }
+        traceId: { type: string }
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - bearerAuth: []
