@@ -1,0 +1,312 @@
+asyncapi: 2.6.0
+info:
+  title: Smart Home Events API
+  version: 1.0.0
+  description: |
+    Асинхронный контур: обмен через RabbitMQ и канал до домашнего хаба.
+    Описаны Device Control, Device Registry и Reference Data.
+
+servers:
+  broker:
+    url: amqps://rabbitmq.smarthome.example:5671
+    protocol: amqp
+    description: RabbitMQ, обмен событиями между сервисами
+  hub:
+    url: wss://hub.smarthome.example/api/v1/hub/stream
+    protocol: wss
+    description: Канал до хаба на время активной сессии приложения
+
+defaultContentType: application/json
+
+channels:
+  telemetry.measurements:
+    description: Поток измерений от домов
+    publish:
+      operationId: publishMeasurement
+      summary: Device Control публикует измерения от хабов
+      message:
+        $ref: '#/components/messages/MeasurementReceived'
+    subscribe:
+      operationId: consumeMeasurement
+      summary: Telemetry пишет ряды, Automation проверяет триггеры
+      message:
+        $ref: '#/components/messages/MeasurementReceived'
+
+  devices.lifecycle:
+    description: Жизненный цикл устройств
+    publish:
+      operationId: publishDeviceEvent
+      summary: Device Registry публикует изменения реестра
+      message:
+        oneOf:
+          - $ref: '#/components/messages/DeviceRegistered'
+          - $ref: '#/components/messages/DeviceUpdated'
+          - $ref: '#/components/messages/DeviceDecommissioned'
+    subscribe:
+      operationId: consumeDeviceEvent
+      summary: Telemetry и Automation обновляют локальные проекции
+      message:
+        oneOf:
+          - $ref: '#/components/messages/DeviceRegistered'
+          - $ref: '#/components/messages/DeviceUpdated'
+          - $ref: '#/components/messages/DeviceDecommissioned'
+
+  devices.state:
+    description: Состояние устройств и результаты команд
+    publish:
+      operationId: publishStateEvent
+      summary: Device Control публикует результат команды и смену состояния
+      message:
+        oneOf:
+          - $ref: '#/components/messages/CommandCompleted'
+          - $ref: '#/components/messages/DeviceStateChanged'
+    subscribe:
+      operationId: consumeStateEvent
+      summary: Notification оповещает пользователя
+      message:
+        oneOf:
+          - $ref: '#/components/messages/CommandCompleted'
+          - $ref: '#/components/messages/DeviceStateChanged'
+
+  reference.changed:
+    description: Изменения справочников
+    publish:
+      operationId: publishReferenceChanged
+      summary: Reference Data публикует изменение типа, метрики или единицы
+      message:
+        $ref: '#/components/messages/ReferenceChanged'
+    subscribe:
+      operationId: consumeReferenceChanged
+      summary: Device Registry обновляет локальную проекцию
+      message:
+        $ref: '#/components/messages/ReferenceChanged'
+
+  hub.stream:
+    description: Двунаправленный канал с хабом при активной сессии
+    publish:
+      operationId: sendToHub
+      summary: Облако отдаёт команду хабу
+      message:
+        $ref: '#/components/messages/CommandDispatched'
+    subscribe:
+      operationId: receiveFromHub
+      summary: Хаб передаёт результаты и измерения
+      message:
+        oneOf:
+          - $ref: '#/components/messages/CommandResultReported'
+          - $ref: '#/components/messages/MeasurementReceived'
+
+components:
+  messages:
+    MeasurementReceived:
+      name: MeasurementReceived
+      title: Измерение получено
+      payload:
+        $ref: '#/components/schemas/Measurement'
+
+    DeviceRegistered:
+      name: DeviceRegistered
+      title: Устройство зарегистрировано
+      payload:
+        $ref: '#/components/schemas/DeviceEvent'
+
+    DeviceUpdated:
+      name: DeviceUpdated
+      title: Устройство изменено
+      payload:
+        $ref: '#/components/schemas/DeviceEvent'
+
+    DeviceDecommissioned:
+      name: DeviceDecommissioned
+      title: Устройство выведено из эксплуатации
+      payload:
+        $ref: '#/components/schemas/DeviceEvent'
+
+    CommandCompleted:
+      name: CommandCompleted
+      title: Команда завершена
+      payload:
+        $ref: '#/components/schemas/CommandOutcome'
+
+    DeviceStateChanged:
+      name: DeviceStateChanged
+      title: Состояние устройства изменилось
+      payload:
+        $ref: '#/components/schemas/StateChange'
+
+    ReferenceChanged:
+      name: ReferenceChanged
+      title: Справочник изменён
+      payload:
+        $ref: '#/components/schemas/ReferenceChange'
+
+    CommandDispatched:
+      name: CommandDispatched
+      title: Команда отправлена хабу
+      payload:
+        $ref: '#/components/schemas/CommandOutbound'
+
+    CommandResultReported:
+      name: CommandResultReported
+      title: Хаб сообщил результат
+      payload:
+        $ref: '#/components/schemas/CommandOutcome'
+
+  schemas:
+    Measurement:
+      type: object
+      required: [deviceId, metricCode, ts]
+      properties:
+        deviceId: { type: string, format: uuid }
+        homeId: { type: string, format: uuid }
+        metricCode: { type: string, example: temperature }
+        unitCode: { type: string, example: celsius }
+        ts: { type: string, format: date-time }
+        valueNumeric: { type: number }
+        valueBool: { type: boolean }
+        valueText: { type: string }
+        quality: { type: string, enum: [ok, stale, error] }
+
+    DeviceEvent:
+      type: object
+      required: [eventId, deviceId, occurredAt]
+      properties:
+        eventId: { type: string, format: uuid, description: Защита от повторной обработки }
+        deviceId: { type: string, format: uuid }
+        homeId: { type: string, format: uuid }
+        typeId: { type: string, format: uuid }
+        occurredAt: { type: string, format: date-time }
+        status: { type: string, enum: [registered, active, offline, decommissioned] }
+        metrics:
+          type: array
+          items: { type: string }
+          example: [temperature, humidity]
+          description: Метрики устройства для фильтрации измерений
+        deletedAt: { type: string, format: date-time, nullable: true }
+
+    CommandOutcome:
+      type: object
+      required: [eventId, commandId, deviceId, status, occurredAt]
+      properties:
+        eventId: { type: string, format: uuid }
+        commandId: { type: string, format: uuid }
+        deviceId: { type: string, format: uuid }
+        status: { type: string, enum: [completed, failed, expired] }
+        failureReason: { type: string, nullable: true }
+        occurredAt: { type: string, format: date-time }
+
+    StateChange:
+      type: object
+      required: [eventId, deviceId, occurredAt]
+      properties:
+        eventId: { type: string, format: uuid }
+        deviceId: { type: string, format: uuid }
+        online: { type: boolean }
+        reported: { $ref: '#/components/schemas/DeviceState' }
+        occurredAt: { type: string, format: date-time }
+
+    ReferenceChange:
+      type: object
+      required: [eventId, entity, changeType, version, occurredAt]
+      properties:
+        eventId: { type: string, format: uuid }
+        entity:
+          type: string
+          enum: [deviceType, capabilitySpec, metric, unit, protocol, classifier]
+        entityId: { type: string, format: uuid }
+        changeType: { type: string, enum: [created, updated, deleted] }
+        version: { type: integer, description: Версия справочника после изменения }
+        occurredAt: { type: string, format: date-time }
+        payload:
+          type: object
+          additionalProperties: true
+          description: |
+            Новое состояние записи справочника. Форма зависит от значения entity
+            и совпадает со схемой соответствующего ресурса Reference Data API.
+          example:
+            id: 8f1c2a30-5b7e-4d21-9a44-0c2f6e3b7d10
+            code: aqara-t1-thermostat
+            manufacturer: Aqara
+            model: SRTS-A01
+            active: true
+            capabilities:
+              - kind: onOff
+              - kind: setpoint
+                metricCode: temperature
+                unitCode: celsius
+                minValue: 5
+                maxValue: 35
+
+    CommandOutbound:
+      type: object
+      required: [commandId, deviceId, capability, action, expiresAt]
+      properties:
+        commandId: { type: string, format: uuid }
+        deviceId: { type: string, format: uuid }
+        capability: { type: string, enum: [onOff, level, setpoint, lock, sensor, stream] }
+        action: { type: string, example: setLevel }
+        params: { $ref: '#/components/schemas/CommandParams' }
+        expiresAt: { type: string, format: date-time }
+
+    CommandParams:
+      description: Параметры определяются возможностью, вариант выбирается по полю capability.
+      oneOf:
+        - $ref: '#/components/schemas/OnOffParams'
+        - $ref: '#/components/schemas/LevelParams'
+        - $ref: '#/components/schemas/SetpointParams'
+        - $ref: '#/components/schemas/LockParams'
+        - $ref: '#/components/schemas/StreamParams'
+      discriminator: capability
+
+    OnOffParams:
+      type: object
+      description: Параметров нет, действие в поле action — turnOn или turnOff.
+      required: [capability]
+      properties:
+        capability: { type: string, enum: [onOff] }
+
+    LevelParams:
+      type: object
+      required: [capability, level]
+      properties:
+        capability: { type: string, enum: [level] }
+        level: { type: integer, minimum: 0, maximum: 100, example: 40, description: Уровень в процентах }
+        transitionSeconds: { type: integer, minimum: 0, maximum: 300, example: 3 }
+
+    SetpointParams:
+      type: object
+      required: [capability, value]
+      properties:
+        capability: { type: string, enum: [setpoint] }
+        value: { type: number, example: 21.5 }
+        unitCode: { type: string, example: celsius }
+
+    LockParams:
+      type: object
+      description: Параметров нет, действие в поле action — lock или unlock.
+      required: [capability]
+      properties:
+        capability: { type: string, enum: [lock] }
+
+    StreamParams:
+      type: object
+      required: [capability]
+      properties:
+        capability: { type: string, enum: [stream] }
+        durationSeconds: { type: integer, minimum: 5, maximum: 300, example: 30 }
+
+    DeviceState:
+      type: object
+      description: |
+        Значения по возможностям устройства. Схема открыта: у нового типа
+        из справочника появятся свои ключи без изменения контракта.
+      properties:
+        onOff: { type: boolean, example: true }
+        level: { type: integer, minimum: 0, maximum: 100, example: 40 }
+        setpoint: { type: number, example: 21.5 }
+        setpointUnitCode: { type: string, example: celsius }
+        lock: { type: string, enum: [locked, unlocked], example: locked }
+      additionalProperties: true
+      example:
+        onOff: true
+        setpoint: 21.5

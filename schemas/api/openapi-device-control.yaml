@@ -1,0 +1,419 @@
+openapi: 3.0.3
+info:
+  title: Device Control API
+  description: |
+    Доставка команд устройствам и канал домашнего хаба.
+    Два контура аутентификации — пользовательский токен и ключ хаба.
+    Обмен по WebSocket описан в AsyncAPI, здесь только запрос-ответ.
+  version: 1.0.0
+
+servers:
+  - url: https://api.smarthome.example/api/v1
+    description: пользовательский контур, через API Gateway
+  - url: http://device-control:8080/api/v1
+    description: внутренний контур, команды от Automation Service
+  - url: https://hub.smarthome.example/api/v1
+    description: контур хаба, аутентификация по ключу устройства
+
+tags:
+  - name: commands
+    description: Команды устройствам
+  - name: shadow
+    description: Желаемое и сообщённое состояние устройства
+  - name: hub
+    description: Канал домашнего хаба
+
+paths:
+  /devices/{deviceId}/commands:
+    parameters:
+      - { $ref: '#/components/parameters/DeviceId' }
+    post:
+      tags: [commands]
+      summary: Отдать команду устройству
+      description: Проверяется по возможностям устройства. Ответ возвращается сразу после постановки в очередь.
+      operationId: issueCommand
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CommandRequest' }
+      responses:
+        '202':
+          description: Команда принята и поставлена в очередь
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Command' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '422':
+          description: Команда не соответствует возможностям устройства
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    get:
+      tags: [commands]
+      summary: История команд устройства
+      operationId: listCommands
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/CommandStatus' }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Команды устройства
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Command' }
+
+  /commands/{commandId}:
+    get:
+      tags: [commands]
+      summary: Состояние команды
+      operationId: getCommand
+      parameters:
+        - name: commandId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Команда и её текущее состояние
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Command' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /devices/{deviceId}/shadow:
+    parameters:
+      - { $ref: '#/components/parameters/DeviceId' }
+    get:
+      tags: [shadow]
+      summary: Желаемое и сообщённое состояние
+      description: Расхождение desired и reported означает, что команда отдана, но не подтверждена.
+      operationId: getShadow
+      responses:
+        '200':
+          description: Теневое состояние устройства
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeviceShadow' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /hub/commands:
+    get:
+      tags: [hub]
+      summary: Забрать команды длинным опросом
+      description: Запрос удерживается до появления команды либо до истечения waitSeconds.
+      operationId: pollCommands
+      security:
+        - hubKeyAuth: []
+      parameters:
+        - name: waitSeconds
+          in: query
+          schema: { type: integer, minimum: 0, maximum: 60, default: 30 }
+      responses:
+        '200':
+          description: Команды для устройств этого дома, в виде для хаба
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CommandOutbound' }
+        '204': { description: За время ожидания команд не появилось }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /hub/commands/{commandId}/result:
+    post:
+      tags: [hub]
+      summary: Сообщить результат выполнения
+      operationId: reportCommandResult
+      security:
+        - hubKeyAuth: []
+      parameters:
+        - name: commandId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CommandResult' }
+      responses:
+        '204': { description: Результат принят, сообщённое состояние обновлено }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /hub/measurements:
+    post:
+      tags: [hub]
+      summary: Отправить пакет измерений
+      description: Отдельный запрос, не внутри длинного опроса. Публикуются в брокер напрямую.
+      operationId: ingestMeasurements
+      security:
+        - hubKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MeasurementBatch' }
+      responses:
+        '202': { description: Пакет принят и опубликован в брокер }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+components:
+  parameters:
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+
+  responses:
+    BadRequest:
+      description: Некорректный запрос
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Ключ устройства отсутствует или отозван
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Не найдено
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    CommandRequest:
+      type: object
+      required: [capability, action]
+      properties:
+        capability: { $ref: '#/components/schemas/CapabilityKind' }
+        action: { type: string, example: turnOn, description: Действие внутри возможности — turnOn, turnOff, lock, unlock, setLevel, setTarget }
+        params: { $ref: '#/components/schemas/CommandParams' }
+        timeToLiveSeconds:
+          type: integer
+          default: 300
+          description: Срок годности команды. Для отопления длинный, для света и ворот короткий.
+
+    Command:
+      type: object
+      required: [id, deviceId, capability, action, status, createdAt, expiresAt]
+      properties:
+        id: { type: string, format: uuid }
+        deviceId: { type: string, format: uuid }
+        issuedByUserId: { type: string, format: uuid, nullable: true, description: Пусто, если команда от сценария }
+        capability: { $ref: '#/components/schemas/CapabilityKind' }
+        action: { type: string, example: setLevel }
+        params: { $ref: '#/components/schemas/CommandParams' }
+        status: { $ref: '#/components/schemas/CommandStatus' }
+        attempts: { type: integer, description: Число попыток доставки }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        sentAt: { type: string, format: date-time, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+        failureReason: { type: string, nullable: true }
+
+    CommandOutbound:
+      type: object
+      description: |
+        Команда в том виде, в каком она уходит в дом. Полей истории здесь нет:
+        у контура хаба нет ни пользователя, отдавшего команду, ни счётчика попыток.
+        Схема совпадает с CommandDispatched в AsyncAPI — одна и та же команда
+        уходит хабу и длинным опросом, и по WebSocket.
+      required: [commandId, deviceId, capability, action, expiresAt]
+      properties:
+        commandId: { type: string, format: uuid }
+        deviceId: { type: string, format: uuid }
+        capability: { $ref: '#/components/schemas/CapabilityKind' }
+        action: { type: string, example: setLevel }
+        params: { $ref: '#/components/schemas/CommandParams' }
+        expiresAt: { type: string, format: date-time, description: После этого момента команду выполнять нельзя }
+
+    CommandStatus:
+      type: string
+      enum: [checking, rejected, queued, sent, completed, failed, expired]
+      description: rejected — не прошла проверку возможностей, expired — пролежала дольше срока годности.
+
+    CommandParams:
+      description: |
+        Параметры полностью определяются возможностью, над которой отдаётся команда.
+        Вариант выбирается по полю capability.
+      oneOf:
+        - $ref: '#/components/schemas/OnOffParams'
+        - $ref: '#/components/schemas/LevelParams'
+        - $ref: '#/components/schemas/SetpointParams'
+        - $ref: '#/components/schemas/LockParams'
+        - $ref: '#/components/schemas/StreamParams'
+      discriminator:
+        propertyName: capability
+        mapping:
+          onOff: '#/components/schemas/OnOffParams'
+          level: '#/components/schemas/LevelParams'
+          setpoint: '#/components/schemas/SetpointParams'
+          lock: '#/components/schemas/LockParams'
+          stream: '#/components/schemas/StreamParams'
+
+    OnOffParams:
+      type: object
+      description: Собственных параметров нет, действие задаётся полем action — turnOn или turnOff.
+      required: [capability]
+      properties:
+        capability: { type: string, enum: [onOff] }
+
+    LevelParams:
+      type: object
+      description: Плавная величина — яркость лампы, положение вентиля.
+      required: [capability, level]
+      properties:
+        capability: { type: string, enum: [level] }
+        level:
+          type: integer
+          minimum: 0
+          maximum: 100
+          example: 40
+          description: Уровень в процентах от полного
+        transitionSeconds:
+          type: integer
+          minimum: 0
+          maximum: 300
+          example: 3
+          description: За сколько секунд выйти на заданный уровень
+
+    SetpointParams:
+      type: object
+      description: Целевое значение — уставка термостата.
+      required: [capability, value]
+      properties:
+        capability: { type: string, enum: [setpoint] }
+        value: { type: number, example: 21.5, description: Целевое значение }
+        unitCode: { type: string, example: celsius, description: Единица из справочника, по умолчанию базовая для метрики }
+
+    LockParams:
+      type: object
+      description: Собственных параметров нет, действие задаётся полем action — lock или unlock.
+      required: [capability]
+      properties:
+        capability: { type: string, enum: [lock] }
+
+    StreamParams:
+      type: object
+      description: Запрос фрагмента записи с камеры.
+      required: [capability]
+      properties:
+        capability: { type: string, enum: [stream] }
+        durationSeconds:
+          type: integer
+          minimum: 5
+          maximum: 300
+          example: 30
+          description: Длительность запрашиваемого фрагмента
+
+    DeviceState:
+      type: object
+      description: |
+        Значения по возможностям устройства. Ключ — код возможности.
+        Схема открыта: у нового типа устройства из справочника появятся свои ключи,
+        и это не потребует изменения контракта.
+      properties:
+        onOff: { type: boolean, example: true }
+        level: { type: integer, minimum: 0, maximum: 100, example: 40 }
+        setpoint: { type: number, example: 21.5 }
+        setpointUnitCode: { type: string, example: celsius }
+        lock: { type: string, enum: [locked, unlocked], example: locked }
+      additionalProperties: true
+      example:
+        onOff: true
+        level: 40
+
+    CommandResult:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean }
+        failureReason: { type: string, nullable: true, example: DEVICE_UNREACHABLE }
+        reportedState:
+          allOf:
+            - $ref: '#/components/schemas/DeviceState'
+          description: Состояние устройства после выполнения
+
+    DeviceShadow:
+      type: object
+      required: [deviceId, online]
+      properties:
+        deviceId: { type: string, format: uuid }
+        online: { type: boolean, description: Есть ли связь с хабом сейчас }
+        desired:
+          allOf:
+            - $ref: '#/components/schemas/DeviceState'
+          description: Каким состояние должно быть после отданных команд
+        reported:
+          allOf:
+            - $ref: '#/components/schemas/DeviceState'
+          description: Каким устройство его сообщило в последний раз
+        desiredAt: { type: string, format: date-time, nullable: true }
+        reportedAt: { type: string, format: date-time, nullable: true }
+
+    MeasurementBatch:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/Measurement' }
+
+    Measurement:
+      type: object
+      required: [deviceId, metricCode, ts]
+      properties:
+        deviceId: { type: string, format: uuid }
+        metricCode: { type: string, example: temperature }
+        unitCode: { type: string, example: celsius }
+        ts: { type: string, format: date-time }
+        valueNumeric: { type: number, nullable: true }
+        valueBool: { type: boolean, nullable: true }
+        valueText: { type: string, nullable: true }
+        quality:
+          type: string
+          enum: [ok, stale, error]
+          default: ok
+      description: Три колонки значения — число, булево, текст, по типу метрики.
+
+    CapabilityKind:
+      type: string
+      enum: [onOff, level, setpoint, lock, sensor, stream]
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string, example: CAPABILITY_NOT_SUPPORTED }
+        message: { type: string }
+        traceId: { type: string }
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Пользовательский контур, токен проверяет шлюз
+    hubKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Hub-Key
+      description: Контур хаба, ключ устройства, отдельный от пользовательского токена
+
+security:
+  - bearerAuth: []

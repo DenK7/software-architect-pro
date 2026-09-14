@@ -1,0 +1,86 @@
+# Надстройка задания 6. Запускается поверх docker-compose.yml задания 5,
+# который при этом не меняется ни на строку:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.microservices.yml up -d --build
+#
+# Сервис app здесь не упоминается: монолит о микросервисах не знает,
+# инициатива обмена целиком на их стороне.
+
+services:
+  postgres-devices:
+    image: postgres:16-alpine
+    container_name: smarthome-postgres-devices
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=devices
+    volumes:
+      - devices_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d devices"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    networks:
+      - smarthome-network
+
+  postgres-telemetry:
+    image: postgres:16-alpine
+    container_name: smarthome-postgres-telemetry
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=telemetry
+    volumes:
+      - telemetry_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d telemetry"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    networks:
+      - smarthome-network
+
+  device-registry:
+    build:
+      context: ./device-registry
+      dockerfile: Dockerfile
+    container_name: smarthome-device-registry
+    depends_on:
+      postgres-devices:
+        condition: service_healthy
+    environment:
+      - DATASOURCE_URL=jdbc:postgresql://postgres-devices:5432/devices
+      - DATASOURCE_USER=postgres
+      - DATASOURCE_PASSWORD=postgres
+      - MONOLITH_URL=http://app:8080
+      - POLL_INTERVAL_MS=15000
+    ports:
+      - "8082:8082"
+    restart: unless-stopped
+    networks:
+      - smarthome-network
+
+  telemetry-service:
+    build:
+      context: ./telemetry-service
+      dockerfile: Dockerfile
+    container_name: smarthome-telemetry
+    depends_on:
+      postgres-telemetry:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres-telemetry:5432/telemetry
+      - MONOLITH_URL=http://app:8080
+      - POLL_INTERVAL_SECONDS=10
+    ports:
+      - "8083:8083"
+    restart: unless-stopped
+    networks:
+      - smarthome-network
+
+volumes:
+  devices_data:
+  telemetry_data:
